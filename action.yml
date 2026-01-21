@@ -1,0 +1,177 @@
+name: 'Rams Design Review'
+description: 'Automated design reviews: accessibility, visual consistency, anti-slop'
+author: 'Rams.ai'
+
+branding:
+  icon: 'eye'
+  color: 'gray-dark'
+
+inputs:
+  api_key:
+    description: 'Your Rams API key from https://rams.ai/app/account/api-keys'
+    required: true
+  path:
+    description: 'Path to audit (default: src)'
+    required: false
+    default: 'src'
+  fail_on_critical:
+    description: 'Fail the workflow if critical issues are found'
+    required: false
+    default: 'true'
+
+outputs:
+  score:
+    description: 'Design score (0-100)'
+  issues:
+    description: 'Number of issues found'
+  critical:
+    description: 'Number of critical issues'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Run Rams Design Review
+      id: review
+      shell: bash
+      env:
+        RAMS_API_KEY: ${{ inputs.api_key }}
+        RAMS_PATH: ${{ inputs.path }}
+      run: |
+        set +e
+        
+        MAX_FILES=100
+        MAX_LINES=1000
+        
+        # Find UI files
+        echo "🔍 Finding UI files in $RAMS_PATH..."
+        FILES=$(find "$RAMS_PATH" -type f \( -name "*.tsx" -o -name "*.jsx" -o -name "*.vue" -o -name "*.svelte" -o -name "*.css" \) ! -path "*/node_modules/*" ! -path "*/.next/*" ! -path "*/dist/*" 2>/dev/null | head -$MAX_FILES)
+        
+        if [ -z "$FILES" ]; then
+          echo "✅ No UI files found in $RAMS_PATH"
+          echo "score=100" >> $GITHUB_OUTPUT
+          echo "issues=0" >> $GITHUB_OUTPUT
+          echo "critical=0" >> $GITHUB_OUTPUT
+          echo "## Rams Design Review" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "No UI files found to review." >> $GITHUB_STEP_SUMMARY
+          exit 0
+        fi
+        
+        FILE_COUNT=$(echo "$FILES" | wc -l | tr -d ' ')
+        echo "📁 Found $FILE_COUNT files to review"
+        
+        # Build JSON payload
+        PAYLOAD='{"files":['
+        FIRST=true
+        
+        while IFS= read -r file; do
+          if [ -f "$file" ]; then
+            # Read file content (up to MAX_LINES) and escape for JSON
+            CONTENT=$(head -$MAX_LINES "$file" | jq -Rs .)
+            
+            if [ "$FIRST" = true ]; then
+              FIRST=false
+            else
+              PAYLOAD+=','
+            fi
+            
+            PAYLOAD+="{\"path\":\"$file\",\"content\":$CONTENT}"
+          fi
+        done <<< "$FILES"
+        
+        PAYLOAD+=']}'
+        
+        # Call Rams API
+        echo "🚀 Calling Rams API..."
+        HTTP_RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
+          "https://worker.rams.ai/api/review" \
+          -H "Authorization: Bearer $RAMS_API_KEY" \
+          -H "Content-Type: application/json" \
+          -d "$PAYLOAD")
+        
+        HTTP_CODE=$(echo "$HTTP_RESPONSE" | tail -n1)
+        RESPONSE=$(echo "$HTTP_RESPONSE" | sed '$d')
+        
+        # Handle HTTP errors
+        if [ "$HTTP_CODE" = "401" ]; then
+          echo "::error::Invalid API key. Get one at https://rams.ai/app/account/api-keys"
+          exit 1
+        elif [ "$HTTP_CODE" = "429" ]; then
+          echo "::error::Rate limit exceeded. Upgrade at https://rams.ai/pricing"
+          exit 1
+        elif [ "$HTTP_CODE" != "200" ]; then
+          echo "::error::API error (HTTP $HTTP_CODE): $RESPONSE"
+          exit 1
+        fi
+        
+        # Check for API errors in response
+        ERROR=$(echo "$RESPONSE" | jq -r '.error // empty')
+        if [ -n "$ERROR" ]; then
+          echo "::error::Rams API error: $ERROR"
+          exit 1
+        fi
+        
+        # Parse response
+        SCORE=$(echo "$RESPONSE" | jq -r '.score // 0')
+        ISSUES=$(echo "$RESPONSE" | jq -r '.issues | length // 0')
+        CRITICAL=$(echo "$RESPONSE" | jq -r '[.issues[]? | select(.severity == "critical")] | length // 0')
+        SUMMARY=$(echo "$RESPONSE" | jq -r '.summary // "Review complete"')
+        
+        echo "score=$SCORE" >> $GITHUB_OUTPUT
+        echo "issues=$ISSUES" >> $GITHUB_OUTPUT
+        echo "critical=$CRITICAL" >> $GITHUB_OUTPUT
+        
+        # Write step summary
+        echo "## Rams Design Review" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
+        echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
+        echo "| **Score** | $SCORE/100 |" >> $GITHUB_STEP_SUMMARY
+        echo "| **Issues** | $ISSUES |" >> $GITHUB_STEP_SUMMARY
+        echo "| **Critical** | $CRITICAL |" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "$SUMMARY" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        
+        # List issues by severity
+        if [ "$ISSUES" -gt 0 ]; then
+          echo "### Issues" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Critical issues
+          CRITICAL_ISSUES=$(echo "$RESPONSE" | jq -r '.issues[]? | select(.severity == "critical") | "- 🔴 **\(.message)** — `\(.file // "unknown")`"')
+          if [ -n "$CRITICAL_ISSUES" ]; then
+            echo "#### Critical" >> $GITHUB_STEP_SUMMARY
+            echo "$CRITICAL_ISSUES" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          # Moderate issues
+          MODERATE_ISSUES=$(echo "$RESPONSE" | jq -r '.issues[]? | select(.severity == "moderate") | "- 🟡 \(.message) — `\(.file // "unknown")`"')
+          if [ -n "$MODERATE_ISSUES" ]; then
+            echo "#### Moderate" >> $GITHUB_STEP_SUMMARY
+            echo "$MODERATE_ISSUES" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          # Low issues
+          LOW_ISSUES=$(echo "$RESPONSE" | jq -r '.issues[]? | select(.severity == "low") | "- ⚪ \(.message)"')
+          if [ -n "$LOW_ISSUES" ]; then
+            echo "<details><summary>Low priority ($( echo \"$LOW_ISSUES\" | wc -l | tr -d ' '))</summary>" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "$LOW_ISSUES" >> $GITHUB_STEP_SUMMARY
+            echo "</details>" >> $GITHUB_STEP_SUMMARY
+          fi
+        fi
+        
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "---" >> $GITHUB_STEP_SUMMARY
+        echo "*Powered by [Rams.ai](https://rams.ai)*" >> $GITHUB_STEP_SUMMARY
+        
+        # Fail if critical issues and fail_on_critical is true
+        if [ "${{ inputs.fail_on_critical }}" = "true" ] && [ "$CRITICAL" -gt 0 ]; then
+          echo "::error::Found $CRITICAL critical design issues. Fix them to pass."
+          exit 1
+        fi
+        
+        echo "✅ Design review complete: $SCORE/100 with $ISSUES issues ($CRITICAL critical)"

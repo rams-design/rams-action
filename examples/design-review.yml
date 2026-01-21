@@ -1,0 +1,32 @@
+# Example workflow for Rams Design Review
+# Copy this file to .github/workflows/design-review.yml in your repository
+
+name: Design Review
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/**/*.tsx'
+      - 'src/**/*.jsx'
+      - 'src/**/*.vue'
+      - 'src/**/*.svelte'
+      - 'src/**/*.css'
+
+jobs:
+  design-review:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Rams Design Review
+        uses: rams-ai/rams-action@v0.0.1
+        with:
+          api_key: ${{ secrets.RAMS_API_KEY }}
+          # path: src  # Default, change if your UI code is elsewhere
+          # fail_on_critical: true  # Default, set to false to always pass
+
