@@ -308,13 +308,26 @@ runs:
             echo "" >> "$COMMENT_FILE"
           fi
           
-          # Positive notes (limit to 10, table format)
-          echo "$RESPONSE" | jq -r '.positives[:10][]? | gsub("^✅\\s*"; "") | "| ✅ | \(.) |"' > /tmp/positives.txt
+          # Positive notes with synopsis
+          POSITIVES_SUMMARY=$(echo "$RESPONSE" | jq -r '.positivesSummary // empty')
+          echo "$RESPONSE" | jq -r '.positives[:10][]? | gsub("^✅\\s*"; "") | 
+            # Try to extract rule ID from the text (e.g., "(A11Y-005)" or "COMP-004")
+            if test("\\([A-Z]+-[0-9]+\\)") then
+              capture("(?<text>.*?)\\s*\\((?<rule>[A-Z]+-[0-9]+)\\)(?<rest>.*)") | "| `\(.rule)` | \(.text)\(.rest) |"
+            elif test("[A-Z]+-[0-9]+") then
+              capture("(?<rule>[A-Z]+-[0-9]+)\\s*[-:]?\\s*(?<text>.*)") | "| `\(.rule)` | \(.text) |"
+            else
+              "| `GOOD` | \(.) |"
+            end' > /tmp/positives.txt
           if [ -s /tmp/positives.txt ]; then
-            echo "### ✅ What's Done Well" >> "$COMMENT_FILE"
+            echo "### 🟢 What's Done Well" >> "$COMMENT_FILE"
             echo "" >> "$COMMENT_FILE"
-            echo "| | Observation |" >> "$COMMENT_FILE"
-            echo "|---|-------------|" >> "$COMMENT_FILE"
+            if [ -n "$POSITIVES_SUMMARY" ]; then
+              echo "$POSITIVES_SUMMARY" >> "$COMMENT_FILE"
+              echo "" >> "$COMMENT_FILE"
+            fi
+            echo "| Rule | Observation |" >> "$COMMENT_FILE"
+            echo "|------|-------------|" >> "$COMMENT_FILE"
             cat /tmp/positives.txt >> "$COMMENT_FILE"
             echo "" >> "$COMMENT_FILE"
           fi
