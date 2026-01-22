@@ -231,43 +231,79 @@ runs:
         echo "| Metric | Value |" >> "$COMMENT_FILE"
         echo "|--------|-------|" >> "$COMMENT_FILE"
         echo "| **Score** | ${SCORE}/100 |" >> "$COMMENT_FILE"
-        echo "| **Issues** | ${ISSUES} |" >> "$COMMENT_FILE"
-        echo "| **Critical** | ${CRITICAL} |" >> "$COMMENT_FILE"
-        echo "| **Serious** | ${SERIOUS} |" >> "$COMMENT_FILE"
+        echo "| 🔴 Critical | ${CRITICAL} |" >> "$COMMENT_FILE"
+        echo "| 🟠 Serious | ${SERIOUS} |" >> "$COMMENT_FILE"
+        echo "| 🟡 Moderate | ${MODERATE} |" >> "$COMMENT_FILE"
         echo "" >> "$COMMENT_FILE"
         
         # Add issues and positives from response
         if [ -f /tmp/rams_response.json ]; then
           RESPONSE=$(cat /tmp/rams_response.json)
           
-          # Critical issues with rule IDs
-          CRITICAL_ISSUES=$(echo "$RESPONSE" | jq -r '.issues[]? | select(.severity == "critical") | "- [\(.rule // "ISSUE")] \(.message) — `\(.file // "unknown"):\(.line // "?")`"')
+          # Category breakdown
+          echo "<details>" >> "$COMMENT_FILE"
+          echo "<summary><strong>Issues by Category</strong></summary>" >> "$COMMENT_FILE"
+          echo "" >> "$COMMENT_FILE"
+          echo "| Category | Count |" >> "$COMMENT_FILE"
+          echo "|----------|-------|" >> "$COMMENT_FILE"
+          A11Y_COUNT=$(echo "$RESPONSE" | jq '[.issues[]? | select(.category == "a11y")] | length')
+          COLOR_COUNT=$(echo "$RESPONSE" | jq '[.issues[]? | select(.category == "color")] | length')
+          MOTION_COUNT=$(echo "$RESPONSE" | jq '[.issues[]? | select(.category == "motion")] | length')
+          SPACE_COUNT=$(echo "$RESPONSE" | jq '[.issues[]? | select(.category == "space" or .category == "spacing")] | length')
+          TYPE_COUNT=$(echo "$RESPONSE" | jq '[.issues[]? | select(.category == "type" or .category == "typography")] | length')
+          COMP_COUNT=$(echo "$RESPONSE" | jq '[.issues[]? | select(.category == "comp" or .category == "components")] | length')
+          UX_COUNT=$(echo "$RESPONSE" | jq '[.issues[]? | select(.category == "ux")] | length')
+          SLOP_COUNT=$(echo "$RESPONSE" | jq '[.issues[]? | select(.category == "slop")] | length')
+          [ "$A11Y_COUNT" -gt 0 ] && echo "| A11Y (Accessibility) | $A11Y_COUNT |" >> "$COMMENT_FILE"
+          [ "$COLOR_COUNT" -gt 0 ] && echo "| COLOR (Tokens/Contrast) | $COLOR_COUNT |" >> "$COMMENT_FILE"
+          [ "$MOTION_COUNT" -gt 0 ] && echo "| MOTION (Animation) | $MOTION_COUNT |" >> "$COMMENT_FILE"
+          [ "$SPACE_COUNT" -gt 0 ] && echo "| SPACE (Layout) | $SPACE_COUNT |" >> "$COMMENT_FILE"
+          [ "$TYPE_COUNT" -gt 0 ] && echo "| TYPE (Typography) | $TYPE_COUNT |" >> "$COMMENT_FILE"
+          [ "$COMP_COUNT" -gt 0 ] && echo "| COMP (Components) | $COMP_COUNT |" >> "$COMMENT_FILE"
+          [ "$UX_COUNT" -gt 0 ] && echo "| UX (States/Feedback) | $UX_COUNT |" >> "$COMMENT_FILE"
+          [ "$SLOP_COUNT" -gt 0 ] && echo "| SLOP (AI Patterns) | $SLOP_COUNT |" >> "$COMMENT_FILE"
+          echo "" >> "$COMMENT_FILE"
+          echo "</details>" >> "$COMMENT_FILE"
+          echo "" >> "$COMMENT_FILE"
+          
+          # Critical issues with code snippets
+          CRITICAL_ISSUES=$(echo "$RESPONSE" | jq -r '.issues[]? | select(.severity == "critical") | "- **[\(.rule // "ISSUE")]** \(.message)\n  - 📍 `\(.file // "unknown"):\(.line // "?")`\(if .current then "\n  - ❌ `" + .current + "`" else "" end)\(if .fix then "\n  - ✅ `" + .fix + "`" else "" end)"')
           if [ -n "$CRITICAL_ISSUES" ]; then
-            echo "### 🔴 Critical" >> "$COMMENT_FILE"
+            echo "### 🔴 Critical Issues" >> "$COMMENT_FILE"
+            echo "" >> "$COMMENT_FILE"
             echo "$CRITICAL_ISSUES" >> "$COMMENT_FILE"
             echo "" >> "$COMMENT_FILE"
           fi
           
-          # Serious issues
-          SERIOUS_ISSUES=$(echo "$RESPONSE" | jq -r '.issues[]? | select(.severity == "serious") | "- [\(.rule // "ISSUE")] \(.message) — `\(.file // "unknown"):\(.line // "?")`"')
+          # Serious issues (collapsed)
+          SERIOUS_ISSUES=$(echo "$RESPONSE" | jq -r '.issues[]? | select(.severity == "serious") | "- **[\(.rule // "ISSUE")]** \(.message) — `\(.file // "unknown"):\(.line // "?")`"')
           if [ -n "$SERIOUS_ISSUES" ]; then
-            echo "### 🟠 Serious" >> "$COMMENT_FILE"
+            echo "<details>" >> "$COMMENT_FILE"
+            echo "<summary><strong>🟠 Serious Issues (${SERIOUS})</strong></summary>" >> "$COMMENT_FILE"
+            echo "" >> "$COMMENT_FILE"
             echo "$SERIOUS_ISSUES" >> "$COMMENT_FILE"
             echo "" >> "$COMMENT_FILE"
-          fi
-          
-          # Moderate issues
-          MODERATE_ISSUES=$(echo "$RESPONSE" | jq -r '.issues[]? | select(.severity == "moderate") | "- [\(.rule // "ISSUE")] \(.message) — `\(.file // "unknown"):\(.line // "?")`"')
-          if [ -n "$MODERATE_ISSUES" ]; then
-            echo "### 🟡 Moderate" >> "$COMMENT_FILE"
-            echo "$MODERATE_ISSUES" >> "$COMMENT_FILE"
+            echo "</details>" >> "$COMMENT_FILE"
             echo "" >> "$COMMENT_FILE"
           fi
           
-          # Positive notes (always show if available)
-          POSITIVES=$(echo "$RESPONSE" | jq -r '.positives[]? | "- \(.)"')
+          # Moderate issues (collapsed)
+          MODERATE_ISSUES=$(echo "$RESPONSE" | jq -r '.issues[]? | select(.severity == "moderate") | "- [\(.rule // "ISSUE")] \(.message) — `\(.file // "unknown"):\(.line // "?")`"')
+          if [ -n "$MODERATE_ISSUES" ]; then
+            echo "<details>" >> "$COMMENT_FILE"
+            echo "<summary><strong>🟡 Moderate Issues (${MODERATE})</strong></summary>" >> "$COMMENT_FILE"
+            echo "" >> "$COMMENT_FILE"
+            echo "$MODERATE_ISSUES" >> "$COMMENT_FILE"
+            echo "" >> "$COMMENT_FILE"
+            echo "</details>" >> "$COMMENT_FILE"
+            echo "" >> "$COMMENT_FILE"
+          fi
+          
+          # Positive notes (limit to 10, strip emoji, add consistent format)
+          POSITIVES=$(echo "$RESPONSE" | jq -r '.positives[:10][]? | gsub("^✅\\s*"; "") | "- ✅ \(.)"')
           if [ -n "$POSITIVES" ]; then
-            echo "### ✅ What's Good" >> "$COMMENT_FILE"
+            echo "### What's Done Well" >> "$COMMENT_FILE"
+            echo "" >> "$COMMENT_FILE"
             echo "$POSITIVES" >> "$COMMENT_FILE"
             echo "" >> "$COMMENT_FILE"
           fi
