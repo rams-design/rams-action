@@ -18,6 +18,10 @@ inputs:
     description: 'Fail the workflow if critical issues are found'
     required: false
     default: 'true'
+  github_token:
+    description: 'GitHub token for posting PR comments (defaults to github.token)'
+    required: false
+    default: ${{ github.token }}
 
 outputs:
   score:
@@ -43,14 +47,15 @@ runs:
         MAX_LINES=1000
         
         # Find UI files
-        echo "🔍 Finding UI files in $RAMS_PATH..."
+        echo "Finding UI files in $RAMS_PATH..."
         FILES=$(find "$RAMS_PATH" -type f \( -name "*.tsx" -o -name "*.jsx" -o -name "*.vue" -o -name "*.svelte" -o -name "*.css" \) ! -path "*/node_modules/*" ! -path "*/.next/*" ! -path "*/dist/*" 2>/dev/null | head -$MAX_FILES)
         
         if [ -z "$FILES" ]; then
-          echo "✅ No UI files found in $RAMS_PATH"
+          echo "No UI files found in $RAMS_PATH"
           echo "score=100" >> $GITHUB_OUTPUT
           echo "issues=0" >> $GITHUB_OUTPUT
           echo "critical=0" >> $GITHUB_OUTPUT
+          echo "summary=No UI files found to review." >> $GITHUB_OUTPUT
           echo "## Rams Design Review" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "No UI files found to review." >> $GITHUB_STEP_SUMMARY
@@ -58,7 +63,7 @@ runs:
         fi
         
         FILE_COUNT=$(echo "$FILES" | wc -l | tr -d ' ')
-        echo "📁 Found $FILE_COUNT files to review"
+        echo "Found $FILE_COUNT files to review"
         
         # Build JSON payload
         PAYLOAD='{"files":['
@@ -86,7 +91,7 @@ runs:
         echo "$PAYLOAD" > "$PAYLOAD_FILE"
         
         # Call Rams API
-        echo "🚀 Calling Rams API..."
+        echo "Calling Rams API..."
         HTTP_RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
           "https://worker.rams.ai/api/review" \
           -H "Authorization: Bearer $RAMS_API_KEY" \
@@ -122,11 +127,16 @@ runs:
         SCORE=$(echo "$RESPONSE" | jq -r '.score // 0')
         ISSUES=$(echo "$RESPONSE" | jq -r '.issues | length // 0')
         CRITICAL=$(echo "$RESPONSE" | jq -r '[.issues[]? | select(.severity == "critical")] | length // 0')
+        MODERATE=$(echo "$RESPONSE" | jq -r '[.issues[]? | select(.severity == "moderate")] | length // 0')
         SUMMARY=$(echo "$RESPONSE" | jq -r '.summary // "Review complete"')
         
         echo "score=$SCORE" >> $GITHUB_OUTPUT
         echo "issues=$ISSUES" >> $GITHUB_OUTPUT
         echo "critical=$CRITICAL" >> $GITHUB_OUTPUT
+        echo "moderate=$MODERATE" >> $GITHUB_OUTPUT
+        
+        # Store response for PR comment step
+        echo "$RESPONSE" > /tmp/rams_response.json
         
         # Write step summary
         echo "## Rams Design Review" >> $GITHUB_STEP_SUMMARY
@@ -146,7 +156,7 @@ runs:
           echo "" >> $GITHUB_STEP_SUMMARY
           
           # Critical issues
-          CRITICAL_ISSUES=$(echo "$RESPONSE" | jq -r '.issues[]? | select(.severity == "critical") | "- 🔴 **\(.message)** — `\(.file // "unknown")`"')
+          CRITICAL_ISSUES=$(echo "$RESPONSE" | jq -r '.issues[]? | select(.severity == "critical") | "- **\(.message)** — `\(.file // "unknown")`"')
           if [ -n "$CRITICAL_ISSUES" ]; then
             echo "#### Critical" >> $GITHUB_STEP_SUMMARY
             echo "$CRITICAL_ISSUES" >> $GITHUB_STEP_SUMMARY
@@ -154,7 +164,7 @@ runs:
           fi
           
           # Moderate issues
-          MODERATE_ISSUES=$(echo "$RESPONSE" | jq -r '.issues[]? | select(.severity == "moderate") | "- 🟡 \(.message) — `\(.file // "unknown")`"')
+          MODERATE_ISSUES=$(echo "$RESPONSE" | jq -r '.issues[]? | select(.severity == "moderate") | "- \(.message) — `\(.file // "unknown")`"')
           if [ -n "$MODERATE_ISSUES" ]; then
             echo "#### Moderate" >> $GITHUB_STEP_SUMMARY
             echo "$MODERATE_ISSUES" >> $GITHUB_STEP_SUMMARY
@@ -162,7 +172,7 @@ runs:
           fi
           
           # Low issues
-          LOW_ISSUES=$(echo "$RESPONSE" | jq -r '.issues[]? | select(.severity == "low") | "- ⚪ \(.message)"')
+          LOW_ISSUES=$(echo "$RESPONSE" | jq -r '.issues[]? | select(.severity == "low") | "- \(.message)"')
           if [ -n "$LOW_ISSUES" ]; then
             echo "<details><summary>Low priority ($( echo \"$LOW_ISSUES\" | wc -l | tr -d ' '))</summary>" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
@@ -178,7 +188,67 @@ runs:
         # Fail if critical issues and fail_on_critical is true
         if [ "${{ inputs.fail_on_critical }}" = "true" ] && [ "$CRITICAL" -gt 0 ]; then
           echo "::error::Found $CRITICAL critical design issues. Fix them to pass."
-          exit 1
+          # Don't exit yet - let the PR comment step run first
+          echo "should_fail=true" >> $GITHUB_OUTPUT
+        else
+          echo "should_fail=false" >> $GITHUB_OUTPUT
         fi
         
-        echo "✅ Design review complete: $SCORE/100 with $ISSUES issues ($CRITICAL critical)"
+        echo "Design review complete: $SCORE/100 with $ISSUES issues ($CRITICAL critical)"
+
+    - name: Post PR Comment
+      if: github.event_name == 'pull_request'
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github_token }}
+        GITHUB_TOKEN: ${{ inputs.github_token }}
+      run: |
+        SCORE="${{ steps.review.outputs.score }}"
+        ISSUES="${{ steps.review.outputs.issues }}"
+        CRITICAL="${{ steps.review.outputs.critical }}"
+        MODERATE="${{ steps.review.outputs.moderate }}"
+        
+        # Build the comment
+        COMMENT="## Rams Design Review
+
+| Metric | Value |
+|--------|-------|
+| **Score** | ${SCORE}/100 |
+| **Issues** | ${ISSUES} |
+| **Critical** | ${CRITICAL} |
+"
+        
+        # Add issues if any
+        if [ "$ISSUES" -gt 0 ] && [ -f /tmp/rams_response.json ]; then
+          RESPONSE=$(cat /tmp/rams_response.json)
+          
+          CRITICAL_ISSUES=$(echo "$RESPONSE" | jq -r '.issues[]? | select(.severity == "critical") | "- **\(.message)** — `\(.file // "unknown")`"')
+          if [ -n "$CRITICAL_ISSUES" ]; then
+            COMMENT+="
+### Critical
+$CRITICAL_ISSUES
+"
+          fi
+          
+          MODERATE_ISSUES=$(echo "$RESPONSE" | jq -r '.issues[]? | select(.severity == "moderate") | "- \(.message) — `\(.file // "unknown")`"')
+          if [ -n "$MODERATE_ISSUES" ]; then
+            COMMENT+="
+### Moderate
+$MODERATE_ISSUES
+"
+          fi
+        fi
+        
+        COMMENT+="
+---
+*Powered by [Rams.ai](https://rams.ai)*"
+        
+        # Post to PR
+        gh pr comment "${{ github.event.pull_request.number }}" --body "$COMMENT" --repo "${{ github.repository }}"
+
+    - name: Fail on Critical
+      if: steps.review.outputs.should_fail == 'true'
+      shell: bash
+      run: |
+        echo "::error::Found critical design issues. Fix them to pass."
+        exit 1
