@@ -308,12 +308,14 @@ runs:
             echo "" >> "$COMMENT_FILE"
           fi
           
-          # Positive notes (limit to 10, strip emoji, add consistent format)
-          POSITIVES=$(echo "$RESPONSE" | jq -r '.positives[:10][]? | gsub("^✅\\s*"; "") | "- ✅ \(.)"')
-          if [ -n "$POSITIVES" ]; then
-            echo "### What's Done Well" >> "$COMMENT_FILE"
+          # Positive notes (limit to 10, table format)
+          echo "$RESPONSE" | jq -r '.positives[:10][]? | gsub("^✅\\s*"; "") | "| ✅ | \(.) |"' > /tmp/positives.txt
+          if [ -s /tmp/positives.txt ]; then
+            echo "### ✅ What's Done Well" >> "$COMMENT_FILE"
             echo "" >> "$COMMENT_FILE"
-            echo "$POSITIVES" >> "$COMMENT_FILE"
+            echo "| | Observation |" >> "$COMMENT_FILE"
+            echo "|---|-------------|" >> "$COMMENT_FILE"
+            cat /tmp/positives.txt >> "$COMMENT_FILE"
             echo "" >> "$COMMENT_FILE"
           fi
         fi
