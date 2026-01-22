@@ -156,7 +156,7 @@ runs:
           echo "" >> $GITHUB_STEP_SUMMARY
           
           # Critical issues (include file:line)
-          CRITICAL_ISSUES=$(echo "$RESPONSE" | jq -r '.issues[]? | select(.severity == "critical") | "- **\(.message)** — `\(.file // "unknown"):\(.line // "?")`"')
+          CRITICAL_ISSUES=$(echo "$RESPONSE" | jq -r '.issues[]? | select(.severity == "critical") | "- \(.message) — `\(.file // "unknown"):\(.line // "?")`"')
           if [ -n "$CRITICAL_ISSUES" ]; then
             echo "#### 🔴 Critical" >> $GITHUB_STEP_SUMMARY
             echo "$CRITICAL_ISSUES" >> $GITHUB_STEP_SUMMARY
@@ -229,7 +229,7 @@ runs:
         if [ "$ISSUES" -gt 0 ] && [ -f /tmp/rams_response.json ]; then
           RESPONSE=$(cat /tmp/rams_response.json)
           
-          CRITICAL_ISSUES=$(echo "$RESPONSE" | jq -r '.issues[]? | select(.severity == "critical") | "- **\(.message)** — `\(.file // "unknown"):\(.line // "?")`"')
+          CRITICAL_ISSUES=$(echo "$RESPONSE" | jq -r '.issues[]? | select(.severity == "critical") | "- \(.message) — `\(.file // "unknown"):\(.line // "?")`"')
           if [ -n "$CRITICAL_ISSUES" ]; then
             echo "### 🔴 Critical" >> "$COMMENT_FILE"
             echo "$CRITICAL_ISSUES" >> "$COMMENT_FILE"
