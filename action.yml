@@ -308,16 +308,14 @@ runs:
             echo "" >> "$COMMENT_FILE"
           fi
           
-          # Positive notes with synopsis
+          # Positive notes with synopsis - handle both object and string formats
           POSITIVES_SUMMARY=$(echo "$RESPONSE" | jq -r '.positivesSummary // empty')
-          echo "$RESPONSE" | jq -r '.positives[:10][]? | gsub("^✅\\s*"; "") | 
-            # Try to extract rule ID from the text (e.g., "(A11Y-005)" or "COMP-004")
-            if test("\\([A-Z]+-[0-9]+\\)") then
-              capture("(?<text>.*?)\\s*\\((?<rule>[A-Z]+-[0-9]+)\\)(?<rest>.*)") | "| `\(.rule)` | \(.text)\(.rest) |"
-            elif test("[A-Z]+-[0-9]+") then
-              capture("(?<rule>[A-Z]+-[0-9]+)\\s*[-:]?\\s*(?<text>.*)") | "| `\(.rule)` | \(.text) |"
+          echo "$RESPONSE" | jq -r '.positives[:10][]? | 
+            if type == "object" then
+              "| `\(.rule // "GOOD")` | \(.observation // .message // "") | `\(.file // "")` |"
             else
-              "| `GOOD` | \(.) |"
+              # Fallback for string format
+              "| `GOOD` | \(.) | |"
             end' > /tmp/positives.txt
           if [ -s /tmp/positives.txt ]; then
             echo "### 🟢 What's Done Well" >> "$COMMENT_FILE"
@@ -326,8 +324,8 @@ runs:
               echo "$POSITIVES_SUMMARY" >> "$COMMENT_FILE"
               echo "" >> "$COMMENT_FILE"
             fi
-            echo "| Rule | Observation |" >> "$COMMENT_FILE"
-            echo "|------|-------------|" >> "$COMMENT_FILE"
+            echo "| Rule | Observation | Location |" >> "$COMMENT_FILE"
+            echo "|------|-------------|----------|" >> "$COMMENT_FILE"
             cat /tmp/positives.txt >> "$COMMENT_FILE"
             echo "" >> "$COMMENT_FILE"
           fi
