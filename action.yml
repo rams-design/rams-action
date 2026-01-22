@@ -155,24 +155,24 @@ runs:
           echo "### Issues" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           
-          # Critical issues
-          CRITICAL_ISSUES=$(echo "$RESPONSE" | jq -r '.issues[]? | select(.severity == "critical") | "- **\(.message)** — `\(.file // "unknown")`"')
+          # Critical issues (include file:line)
+          CRITICAL_ISSUES=$(echo "$RESPONSE" | jq -r '.issues[]? | select(.severity == "critical") | "- **\(.message)** — `\(.file // "unknown"):\(.line // "?")`"')
           if [ -n "$CRITICAL_ISSUES" ]; then
             echo "#### Critical" >> $GITHUB_STEP_SUMMARY
             echo "$CRITICAL_ISSUES" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
           fi
           
-          # Moderate issues
-          MODERATE_ISSUES=$(echo "$RESPONSE" | jq -r '.issues[]? | select(.severity == "moderate") | "- \(.message) — `\(.file // "unknown")`"')
+          # Moderate issues (include file:line)
+          MODERATE_ISSUES=$(echo "$RESPONSE" | jq -r '.issues[]? | select(.severity == "moderate") | "- \(.message) — `\(.file // "unknown"):\(.line // "?")`"')
           if [ -n "$MODERATE_ISSUES" ]; then
             echo "#### Moderate" >> $GITHUB_STEP_SUMMARY
             echo "$MODERATE_ISSUES" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
           fi
           
-          # Low issues
-          LOW_ISSUES=$(echo "$RESPONSE" | jq -r '.issues[]? | select(.severity == "low") | "- \(.message)"')
+          # Low issues (include file:line)
+          LOW_ISSUES=$(echo "$RESPONSE" | jq -r '.issues[]? | select(.severity == "low") | "- \(.message) — `\(.file // "unknown"):\(.line // "?")`"')
           if [ -n "$LOW_ISSUES" ]; then
             echo "<details><summary>Low priority ($( echo \"$LOW_ISSUES\" | wc -l | tr -d ' '))</summary>" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
@@ -229,14 +229,14 @@ runs:
         if [ "$ISSUES" -gt 0 ] && [ -f /tmp/rams_response.json ]; then
           RESPONSE=$(cat /tmp/rams_response.json)
           
-          CRITICAL_ISSUES=$(echo "$RESPONSE" | jq -r '.issues[]? | select(.severity == "critical") | "- **\(.message)** — `\(.file // "unknown")`"')
+          CRITICAL_ISSUES=$(echo "$RESPONSE" | jq -r '.issues[]? | select(.severity == "critical") | "- **\(.message)** — `\(.file // "unknown"):\(.line // "?")`"')
           if [ -n "$CRITICAL_ISSUES" ]; then
             echo "### Critical" >> "$COMMENT_FILE"
             echo "$CRITICAL_ISSUES" >> "$COMMENT_FILE"
             echo "" >> "$COMMENT_FILE"
           fi
           
-          MODERATE_ISSUES=$(echo "$RESPONSE" | jq -r '.issues[]? | select(.severity == "moderate") | "- \(.message) — `\(.file // "unknown")`"')
+          MODERATE_ISSUES=$(echo "$RESPONSE" | jq -r '.issues[]? | select(.severity == "moderate") | "- \(.message) — `\(.file // "unknown"):\(.line // "?")`"')
           if [ -n "$MODERATE_ISSUES" ]; then
             echo "### Moderate" >> "$COMMENT_FILE"
             echo "$MODERATE_ISSUES" >> "$COMMENT_FILE"
