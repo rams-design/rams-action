@@ -266,34 +266,43 @@ runs:
           echo "</details>" >> "$COMMENT_FILE"
           echo "" >> "$COMMENT_FILE"
           
-          # Critical issues with code snippets
-          CRITICAL_ISSUES=$(echo "$RESPONSE" | jq -r '.issues[]? | select(.severity == "critical") | "- **[\(.rule // "ISSUE")]** \(.message)\n  - 📍 `\(.file // "unknown"):\(.line // "?")`\(if .current then "\n  - ❌ `" + .current + "`" else "" end)\(if .fix then "\n  - ✅ `" + .fix + "`" else "" end)"')
-          if [ -n "$CRITICAL_ISSUES" ]; then
-            echo "### 🔴 Critical Issues" >> "$COMMENT_FILE"
+          # Critical issues - simple format to avoid markdown breaking
+          echo "### 🔴 Critical Issues" >> "$COMMENT_FILE"
+          echo "" >> "$COMMENT_FILE"
+          echo "$RESPONSE" | jq -r '.issues[]? | select(.severity == "critical") | "| `\(.rule // "?")` | \(.message) | `\(.file // "?"):\(.line // "?")` |"' > /tmp/critical_issues.txt
+          if [ -s /tmp/critical_issues.txt ]; then
+            echo "| Rule | Issue | Location |" >> "$COMMENT_FILE"
+            echo "|------|-------|----------|" >> "$COMMENT_FILE"
+            cat /tmp/critical_issues.txt >> "$COMMENT_FILE"
             echo "" >> "$COMMENT_FILE"
-            echo "$CRITICAL_ISSUES" >> "$COMMENT_FILE"
+          else
+            echo "No critical issues found." >> "$COMMENT_FILE"
             echo "" >> "$COMMENT_FILE"
           fi
           
-          # Serious issues (collapsed)
-          SERIOUS_ISSUES=$(echo "$RESPONSE" | jq -r '.issues[]? | select(.severity == "serious") | "- **[\(.rule // "ISSUE")]** \(.message) — `\(.file // "unknown"):\(.line // "?")`"')
-          if [ -n "$SERIOUS_ISSUES" ]; then
+          # Serious issues (collapsed table)
+          echo "$RESPONSE" | jq -r '.issues[]? | select(.severity == "serious") | "| `\(.rule // "?")` | \(.message) | `\(.file // "?"):\(.line // "?")` |"' > /tmp/serious_issues.txt
+          if [ -s /tmp/serious_issues.txt ]; then
             echo "<details>" >> "$COMMENT_FILE"
             echo "<summary><strong>🟠 Serious Issues (${SERIOUS})</strong></summary>" >> "$COMMENT_FILE"
             echo "" >> "$COMMENT_FILE"
-            echo "$SERIOUS_ISSUES" >> "$COMMENT_FILE"
+            echo "| Rule | Issue | Location |" >> "$COMMENT_FILE"
+            echo "|------|-------|----------|" >> "$COMMENT_FILE"
+            cat /tmp/serious_issues.txt >> "$COMMENT_FILE"
             echo "" >> "$COMMENT_FILE"
             echo "</details>" >> "$COMMENT_FILE"
             echo "" >> "$COMMENT_FILE"
           fi
           
-          # Moderate issues (collapsed)
-          MODERATE_ISSUES=$(echo "$RESPONSE" | jq -r '.issues[]? | select(.severity == "moderate") | "- [\(.rule // "ISSUE")] \(.message) — `\(.file // "unknown"):\(.line // "?")`"')
-          if [ -n "$MODERATE_ISSUES" ]; then
+          # Moderate issues (collapsed table)
+          echo "$RESPONSE" | jq -r '.issues[]? | select(.severity == "moderate") | "| `\(.rule // "?")` | \(.message) | `\(.file // "?"):\(.line // "?")` |"' > /tmp/moderate_issues.txt
+          if [ -s /tmp/moderate_issues.txt ]; then
             echo "<details>" >> "$COMMENT_FILE"
             echo "<summary><strong>🟡 Moderate Issues (${MODERATE})</strong></summary>" >> "$COMMENT_FILE"
             echo "" >> "$COMMENT_FILE"
-            echo "$MODERATE_ISSUES" >> "$COMMENT_FILE"
+            echo "| Rule | Issue | Location |" >> "$COMMENT_FILE"
+            echo "|------|-------|----------|" >> "$COMMENT_FILE"
+            cat /tmp/moderate_issues.txt >> "$COMMENT_FILE"
             echo "" >> "$COMMENT_FILE"
             echo "</details>" >> "$COMMENT_FILE"
             echo "" >> "$COMMENT_FILE"
