@@ -208,15 +208,22 @@ runs:
         CRITICAL="${{ steps.review.outputs.critical }}"
         MODERATE="${{ steps.review.outputs.moderate }}"
         
-        # Build the comment
-        COMMENT="## Rams Design Review
-
-| Metric | Value |
-|--------|-------|
-| **Score** | ${SCORE}/100 |
-| **Issues** | ${ISSUES} |
-| **Critical** | ${CRITICAL} |
-"
+        # Build the comment using a temp file to avoid YAML issues
+        COMMENT_FILE=$(mktemp)
+        
+        cat > "$COMMENT_FILE" << 'ENDHEADER'
+        ## Rams Design Review
+        
+        | Metric | Value |
+        |--------|-------|
+        ENDHEADER
+        
+        # Add metrics (strip leading whitespace from heredoc)
+        sed -i 's/^        //' "$COMMENT_FILE"
+        echo "| **Score** | ${SCORE}/100 |" >> "$COMMENT_FILE"
+        echo "| **Issues** | ${ISSUES} |" >> "$COMMENT_FILE"
+        echo "| **Critical** | ${CRITICAL} |" >> "$COMMENT_FILE"
+        echo "" >> "$COMMENT_FILE"
         
         # Add issues if any
         if [ "$ISSUES" -gt 0 ] && [ -f /tmp/rams_response.json ]; then
@@ -224,27 +231,27 @@ runs:
           
           CRITICAL_ISSUES=$(echo "$RESPONSE" | jq -r '.issues[]? | select(.severity == "critical") | "- **\(.message)** — `\(.file // "unknown")`"')
           if [ -n "$CRITICAL_ISSUES" ]; then
-            COMMENT+="
-### Critical
-$CRITICAL_ISSUES
-"
+            echo "### Critical" >> "$COMMENT_FILE"
+            echo "$CRITICAL_ISSUES" >> "$COMMENT_FILE"
+            echo "" >> "$COMMENT_FILE"
           fi
           
           MODERATE_ISSUES=$(echo "$RESPONSE" | jq -r '.issues[]? | select(.severity == "moderate") | "- \(.message) — `\(.file // "unknown")`"')
           if [ -n "$MODERATE_ISSUES" ]; then
-            COMMENT+="
-### Moderate
-$MODERATE_ISSUES
-"
+            echo "### Moderate" >> "$COMMENT_FILE"
+            echo "$MODERATE_ISSUES" >> "$COMMENT_FILE"
+            echo "" >> "$COMMENT_FILE"
           fi
         fi
         
-        COMMENT+="
----
-*Powered by [Rams.ai](https://rams.ai)*"
+        echo "---" >> "$COMMENT_FILE"
+        echo "*Powered by [Rams.ai](https://rams.ai)*" >> "$COMMENT_FILE"
         
         # Post to PR
-        gh pr comment "${{ github.event.pull_request.number }}" --body "$COMMENT" --repo "${{ github.repository }}"
+        gh pr comment "${{ github.event.pull_request.number }}" --body-file "$COMMENT_FILE" --repo "${{ github.repository }}"
+        
+        # Cleanup
+        rm -f "$COMMENT_FILE"
 
     - name: Fail on Critical
       if: steps.review.outputs.should_fail == 'true'
