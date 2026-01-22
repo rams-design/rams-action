@@ -30,6 +30,10 @@ outputs:
     description: 'Number of issues found'
   critical:
     description: 'Number of critical issues'
+  serious:
+    description: 'Number of serious issues'
+  moderate:
+    description: 'Number of moderate issues'
 
 runs:
   using: 'composite'
@@ -127,12 +131,14 @@ runs:
         SCORE=$(echo "$RESPONSE" | jq -r '.score // 0')
         ISSUES=$(echo "$RESPONSE" | jq -r '.issues | length // 0')
         CRITICAL=$(echo "$RESPONSE" | jq -r '[.issues[]? | select(.severity == "critical")] | length // 0')
+        SERIOUS=$(echo "$RESPONSE" | jq -r '[.issues[]? | select(.severity == "serious")] | length // 0')
         MODERATE=$(echo "$RESPONSE" | jq -r '[.issues[]? | select(.severity == "moderate")] | length // 0')
         SUMMARY=$(echo "$RESPONSE" | jq -r '.summary // "Review complete"')
         
         echo "score=$SCORE" >> $GITHUB_OUTPUT
         echo "issues=$ISSUES" >> $GITHUB_OUTPUT
         echo "critical=$CRITICAL" >> $GITHUB_OUTPUT
+        echo "serious=$SERIOUS" >> $GITHUB_OUTPUT
         echo "moderate=$MODERATE" >> $GITHUB_OUTPUT
         
         # Store response for PR comment step
@@ -146,6 +152,7 @@ runs:
         echo "| **Score** | $SCORE/100 |" >> $GITHUB_STEP_SUMMARY
         echo "| **Issues** | $ISSUES |" >> $GITHUB_STEP_SUMMARY
         echo "| **Critical** | $CRITICAL |" >> $GITHUB_STEP_SUMMARY
+        echo "| **Serious** | $SERIOUS |" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "$SUMMARY" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
@@ -155,30 +162,37 @@ runs:
           echo "### Issues" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           
-          # Critical issues (include file:line)
-          CRITICAL_ISSUES=$(echo "$RESPONSE" | jq -r '.issues[]? | select(.severity == "critical") | "- \(.message) — `\(.file // "unknown"):\(.line // "?")`"')
+          # Critical issues with rule IDs
+          CRITICAL_ISSUES=$(echo "$RESPONSE" | jq -r '.issues[]? | select(.severity == "critical") | "- [\(.rule // "ISSUE")] \(.message) — `\(.file // "unknown"):\(.line // "?")`"')
           if [ -n "$CRITICAL_ISSUES" ]; then
             echo "#### 🔴 Critical" >> $GITHUB_STEP_SUMMARY
             echo "$CRITICAL_ISSUES" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
           fi
           
-          # Moderate issues (include file:line)
-          MODERATE_ISSUES=$(echo "$RESPONSE" | jq -r '.issues[]? | select(.severity == "moderate") | "- \(.message) — `\(.file // "unknown"):\(.line // "?")`"')
+          # Serious issues
+          SERIOUS_ISSUES=$(echo "$RESPONSE" | jq -r '.issues[]? | select(.severity == "serious") | "- [\(.rule // "ISSUE")] \(.message) — `\(.file // "unknown"):\(.line // "?")`"')
+          if [ -n "$SERIOUS_ISSUES" ]; then
+            echo "#### 🟠 Serious" >> $GITHUB_STEP_SUMMARY
+            echo "$SERIOUS_ISSUES" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          # Moderate issues
+          MODERATE_ISSUES=$(echo "$RESPONSE" | jq -r '.issues[]? | select(.severity == "moderate") | "- [\(.rule // "ISSUE")] \(.message) — `\(.file // "unknown"):\(.line // "?")`"')
           if [ -n "$MODERATE_ISSUES" ]; then
             echo "#### 🟡 Moderate" >> $GITHUB_STEP_SUMMARY
             echo "$MODERATE_ISSUES" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
           fi
-          
-          # Low issues (include file:line)
-          LOW_ISSUES=$(echo "$RESPONSE" | jq -r '.issues[]? | select(.severity == "low") | "- \(.message) — `\(.file // "unknown"):\(.line // "?")`"')
-          if [ -n "$LOW_ISSUES" ]; then
-            echo "<details><summary>Low priority ($( echo \"$LOW_ISSUES\" | wc -l | tr -d ' '))</summary>" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "$LOW_ISSUES" >> $GITHUB_STEP_SUMMARY
-            echo "</details>" >> $GITHUB_STEP_SUMMARY
-          fi
+        fi
+        
+        # Positives (always show if available)
+        POSITIVES=$(echo "$RESPONSE" | jq -r '.positives[]? | "- \(.)"')
+        if [ -n "$POSITIVES" ]; then
+          echo "### ✅ What's Good" >> $GITHUB_STEP_SUMMARY
+          echo "$POSITIVES" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
         fi
         
         echo "" >> $GITHUB_STEP_SUMMARY
@@ -194,7 +208,7 @@ runs:
           echo "should_fail=false" >> $GITHUB_OUTPUT
         fi
         
-        echo "Design review complete: $SCORE/100 with $ISSUES issues ($CRITICAL critical)"
+        echo "Design review complete: $SCORE/100 with $ISSUES issues ($CRITICAL critical, $SERIOUS serious)"
 
     - name: Post PR Comment
       if: github.event_name == 'pull_request'
@@ -206,40 +220,55 @@ runs:
         SCORE="${{ steps.review.outputs.score }}"
         ISSUES="${{ steps.review.outputs.issues }}"
         CRITICAL="${{ steps.review.outputs.critical }}"
+        SERIOUS="${{ steps.review.outputs.serious }}"
         MODERATE="${{ steps.review.outputs.moderate }}"
         
         # Build the comment using a temp file to avoid YAML issues
         COMMENT_FILE=$(mktemp)
         
-        cat > "$COMMENT_FILE" << 'ENDHEADER'
-        ## Rams Design Review
-        
-        | Metric | Value |
-        |--------|-------|
-        ENDHEADER
-        
-        # Add metrics (strip leading whitespace from heredoc)
-        sed -i 's/^        //' "$COMMENT_FILE"
+        echo "## Rams Design Review" > "$COMMENT_FILE"
+        echo "" >> "$COMMENT_FILE"
+        echo "| Metric | Value |" >> "$COMMENT_FILE"
+        echo "|--------|-------|" >> "$COMMENT_FILE"
         echo "| **Score** | ${SCORE}/100 |" >> "$COMMENT_FILE"
         echo "| **Issues** | ${ISSUES} |" >> "$COMMENT_FILE"
         echo "| **Critical** | ${CRITICAL} |" >> "$COMMENT_FILE"
+        echo "| **Serious** | ${SERIOUS} |" >> "$COMMENT_FILE"
         echo "" >> "$COMMENT_FILE"
         
-        # Add issues if any
-        if [ "$ISSUES" -gt 0 ] && [ -f /tmp/rams_response.json ]; then
+        # Add issues and positives from response
+        if [ -f /tmp/rams_response.json ]; then
           RESPONSE=$(cat /tmp/rams_response.json)
           
-          CRITICAL_ISSUES=$(echo "$RESPONSE" | jq -r '.issues[]? | select(.severity == "critical") | "- \(.message) — `\(.file // "unknown"):\(.line // "?")`"')
+          # Critical issues with rule IDs
+          CRITICAL_ISSUES=$(echo "$RESPONSE" | jq -r '.issues[]? | select(.severity == "critical") | "- [\(.rule // "ISSUE")] \(.message) — `\(.file // "unknown"):\(.line // "?")`"')
           if [ -n "$CRITICAL_ISSUES" ]; then
             echo "### 🔴 Critical" >> "$COMMENT_FILE"
             echo "$CRITICAL_ISSUES" >> "$COMMENT_FILE"
             echo "" >> "$COMMENT_FILE"
           fi
           
-          MODERATE_ISSUES=$(echo "$RESPONSE" | jq -r '.issues[]? | select(.severity == "moderate") | "- \(.message) — `\(.file // "unknown"):\(.line // "?")`"')
+          # Serious issues
+          SERIOUS_ISSUES=$(echo "$RESPONSE" | jq -r '.issues[]? | select(.severity == "serious") | "- [\(.rule // "ISSUE")] \(.message) — `\(.file // "unknown"):\(.line // "?")`"')
+          if [ -n "$SERIOUS_ISSUES" ]; then
+            echo "### 🟠 Serious" >> "$COMMENT_FILE"
+            echo "$SERIOUS_ISSUES" >> "$COMMENT_FILE"
+            echo "" >> "$COMMENT_FILE"
+          fi
+          
+          # Moderate issues
+          MODERATE_ISSUES=$(echo "$RESPONSE" | jq -r '.issues[]? | select(.severity == "moderate") | "- [\(.rule // "ISSUE")] \(.message) — `\(.file // "unknown"):\(.line // "?")`"')
           if [ -n "$MODERATE_ISSUES" ]; then
             echo "### 🟡 Moderate" >> "$COMMENT_FILE"
             echo "$MODERATE_ISSUES" >> "$COMMENT_FILE"
+            echo "" >> "$COMMENT_FILE"
+          fi
+          
+          # Positive notes (always show if available)
+          POSITIVES=$(echo "$RESPONSE" | jq -r '.positives[]? | "- \(.)"')
+          if [ -n "$POSITIVES" ]; then
+            echo "### ✅ What's Good" >> "$COMMENT_FILE"
+            echo "$POSITIVES" >> "$COMMENT_FILE"
             echo "" >> "$COMMENT_FILE"
           fi
         fi
