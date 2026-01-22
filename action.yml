@@ -81,13 +81,20 @@ runs:
         
         PAYLOAD+=']}'
         
+        # Write payload to temp file (avoids "argument list too long" error)
+        PAYLOAD_FILE=$(mktemp)
+        echo "$PAYLOAD" > "$PAYLOAD_FILE"
+        
         # Call Rams API
         echo "🚀 Calling Rams API..."
         HTTP_RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
           "https://worker.rams.ai/api/review" \
           -H "Authorization: Bearer $RAMS_API_KEY" \
           -H "Content-Type: application/json" \
-          -d "$PAYLOAD")
+          -d @"$PAYLOAD_FILE")
+        
+        # Clean up temp file
+        rm -f "$PAYLOAD_FILE"
         
         HTTP_CODE=$(echo "$HTTP_RESPONSE" | tail -n1)
         RESPONSE=$(echo "$HTTP_RESPONSE" | sed '$d')
