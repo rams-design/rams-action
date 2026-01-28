@@ -4,45 +4,23 @@ Automated design reviews on every PR: accessibility, visual consistency, anti-sl
 
 ## Quick Start
 
-### 1. Initial Audit (run once)
-
-First, run a full audit to establish your baseline:
+Add this workflow to your repo:
 
 ```yaml
-name: Rams Init
-
-on:
-  workflow_dispatch:  # Manual trigger
-
-jobs:
-  init:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      
-      - uses: rams-ai/rams-action@v1
-        with:
-          api_key: ${{ secrets.RAMS_API_KEY }}
-          changed_only: false  # Review ALL files
-          mode: thorough       # Deep review
-```
-
-Run this once from the Actions tab to get your initial score.
-
-### 2. PR Reviews (every PR)
-
-Then add this workflow for ongoing reviews:
-
-```yaml
-name: Design Review
+# .github/workflows/rams.yml
+name: Rams
 
 on:
   pull_request:
     branches: [main]
 
 jobs:
-  design-review:
+  review:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    
     steps:
       - uses: actions/checkout@v4
       
@@ -51,7 +29,9 @@ jobs:
           api_key: ${{ secrets.RAMS_API_KEY }}
 ```
 
-This only reviews changed files, keeping costs low and feedback relevant.
+That's it! Rams automatically:
+- **First PR**: Full audit of your codebase, establishes baseline
+- **Subsequent PRs**: Reviews only changed files, shows score delta
 
 ## Get Your API Key
 
@@ -88,7 +68,8 @@ This only reviews changed files, keeping costs low and feedback relevant.
 
 | Metric | Value |
 |--------|-------|
-| **Score** | 72/100 |
+| **Score** | 72/100 (+8 ✅) |
+| **Baseline** | 64/100 |
 | 🔴 Critical | 2 |
 | 🟠 Serious | 5 |
 | 🟡 Moderate | 8 |
@@ -126,17 +107,17 @@ This only reviews changed files, keeping costs low and feedback relevant.
 
 ## How It Works
 
-### Initial Audit
-- Reviews your entire codebase
-- Establishes a baseline score
-- Identifies existing issues to fix
-- Run manually or on first setup
+### First PR (Automatic)
+- Rams detects no baseline exists
+- Runs a **full audit** of your entire codebase
+- Establishes your baseline score
+- Saves to your account
 
-### PR Reviews
+### Subsequent PRs
 - Only reviews files changed in the PR
-- Fast feedback (usually < 30 seconds)
-- Blocks merges on critical issues (configurable)
-- Posts detailed comments with fixes
+- Compares against your baseline
+- Shows score delta: `+5 ✅` or `-3 ⚠️`
+- Lists new issues and fixed issues
 
 ## What It Checks
 
@@ -167,14 +148,13 @@ Two-pass review: quick triage of all files, then detailed review of problem file
 
 ### Thorough Mode
 Reviews every file individually for maximum detection.
-- Best for: Initial audits, pre-release reviews
+- Best for: Pre-release reviews, audits
 
 ```yaml
 - uses: rams-ai/rams-action@v1
   with:
     api_key: ${{ secrets.RAMS_API_KEY }}
     mode: thorough
-    changed_only: false
 ```
 
 ## Support
