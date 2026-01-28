@@ -1,0 +1,26 @@
+# Initial audit workflow for Rams
+# Run this once to get your baseline score
+# Copy to .github/workflows/rams-init.yml
+
+name: Rams Initial Audit
+
+on:
+  workflow_dispatch:  # Manual trigger from Actions tab
+
+jobs:
+  initial-audit:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Rams Full Audit
+        uses: rams-ai/rams-action@v1
+        with:
+          api_key: ${{ secrets.RAMS_API_KEY }}
+          changed_only: false   # Review ALL files
+          mode: thorough        # Deep review of every file
+          fail_on_critical: false  # Don't fail on initial audit
+

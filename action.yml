@@ -14,6 +14,14 @@ inputs:
     description: 'Path to audit (default: src)'
     required: false
     default: 'src'
+  mode:
+    description: 'Review mode: "fast" (two-pass, cheaper) or "thorough" (every file)'
+    required: false
+    default: 'fast'
+  changed_only:
+    description: 'Only review files changed in this PR (recommended for CI)'
+    required: false
+    default: 'true'
   fail_on_critical:
     description: 'Fail the workflow if critical issues are found'
     required: false
@@ -44,15 +52,66 @@ runs:
       env:
         RAMS_API_KEY: ${{ inputs.api_key }}
         RAMS_PATH: ${{ inputs.path }}
+        RAMS_MODE: ${{ inputs.mode }}
+        CHANGED_ONLY: ${{ inputs.changed_only }}
+        GH_TOKEN: ${{ inputs.github_token }}
       run: |
         set +e
         
         MAX_FILES=100
         MAX_LINES=1000
+        REPO="${{ github.repository }}"
+        IS_INITIAL_AUDIT=false
         
-        # Find UI files
-        echo "Finding UI files in $RAMS_PATH..."
-        FILES=$(find "$RAMS_PATH" -type f \( -name "*.tsx" -o -name "*.jsx" -o -name "*.vue" -o -name "*.svelte" -o -name "*.css" \) ! -path "*/node_modules/*" ! -path "*/.next/*" ! -path "*/dist/*" 2>/dev/null | head -$MAX_FILES)
+        # Check if baseline exists for this repo
+        echo "🔍 Checking for existing baseline..."
+        BASELINE_RESPONSE=$(curl -s -X GET \
+          "https://worker.rams.ai/api/baseline/check?repo=$REPO" \
+          -H "Authorization: Bearer $RAMS_API_KEY" \
+          -H "Content-Type: application/json")
+        
+        HAS_BASELINE=$(echo "$BASELINE_RESPONSE" | jq -r '.hasBaseline // false')
+        
+        if [ "$HAS_BASELINE" = "true" ]; then
+          BASELINE_SCORE=$(echo "$BASELINE_RESPONSE" | jq -r '.score // "?"')
+          echo "📊 Baseline found: $BASELINE_SCORE/100"
+        else
+          echo "📊 No baseline found - this will be the initial audit (full scan)"
+          IS_INITIAL_AUDIT=true
+        fi
+        
+        # Determine which files to review
+        # Force full scan if: no baseline OR changed_only=false OR not a PR
+        if [ "$IS_INITIAL_AUDIT" = "true" ]; then
+          echo "🔬 Initial audit: scanning ALL UI files to establish baseline..."
+          FILES=$(find "$RAMS_PATH" -type f \( -name "*.tsx" -o -name "*.jsx" -o -name "*.vue" -o -name "*.svelte" -o -name "*.css" \) ! -path "*/node_modules/*" ! -path "*/.next/*" ! -path "*/dist/*" 2>/dev/null | head -$MAX_FILES)
+        elif [ "$CHANGED_ONLY" = "true" ] && [ "${{ github.event_name }}" = "pull_request" ]; then
+          echo "📋 Reviewing only changed files in this PR..."
+          # Get changed files from PR
+          CHANGED=$(gh pr diff ${{ github.event.pull_request.number }} --name-only 2>/dev/null || echo "")
+          
+          if [ -n "$CHANGED" ]; then
+            # Filter to UI files only
+            FILES=$(echo "$CHANGED" | grep -E '\.(tsx|jsx|vue|svelte|css)$' | head -$MAX_FILES)
+            if [ -z "$FILES" ]; then
+              echo "No UI files changed in this PR."
+              echo "score=100" >> $GITHUB_OUTPUT
+              echo "issues=0" >> $GITHUB_OUTPUT
+              echo "critical=0" >> $GITHUB_OUTPUT
+              echo "## Rams Design Review" >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo "✅ No UI files changed in this PR." >> $GITHUB_STEP_SUMMARY
+              exit 0
+            fi
+          else
+            echo "Could not get PR diff, falling back to full scan..."
+            FILES=$(find "$RAMS_PATH" -type f \( -name "*.tsx" -o -name "*.jsx" -o -name "*.vue" -o -name "*.svelte" -o -name "*.css" \) ! -path "*/node_modules/*" ! -path "*/.next/*" ! -path "*/dist/*" 2>/dev/null | head -$MAX_FILES)
+          fi
+        else
+          # Full scan mode
+          echo "🔍 Scanning all UI files in $RAMS_PATH..."
+          FILES=$(find "$RAMS_PATH" -type f \( -name "*.tsx" -o -name "*.jsx" -o -name "*.vue" -o -name "*.svelte" -o -name "*.css" \) ! -path "*/node_modules/*" ! -path "*/.next/*" ! -path "*/dist/*" 2>/dev/null | head -$MAX_FILES)
+        fi
         
         if [ -z "$FILES" ]; then
           echo "No UI files found in $RAMS_PATH"
@@ -88,7 +147,7 @@ runs:
           fi
         done <<< "$FILES"
         
-        PAYLOAD+=']}'
+        PAYLOAD+='],"mode":"'"$RAMS_MODE"'","repo":"${{ github.repository }}"}'
         
         # Write payload to temp file (avoids "argument list too long" error)
         PAYLOAD_FILE=$(mktemp)
@@ -226,19 +285,58 @@ runs:
         # Build the comment using a temp file to avoid YAML issues
         COMMENT_FILE=$(mktemp)
         
-        echo "## Rams Design Review" > "$COMMENT_FILE"
-        echo "" >> "$COMMENT_FILE"
+        # Read response for baseline info
+        RESPONSE=""
+        IS_INITIAL=""
+        BASELINE_SCORE=""
+        DELTA=""
+        NEW_ISSUES=""
+        FIXED_ISSUES=""
+        
+        if [ -f /tmp/rams_response.json ]; then
+          RESPONSE=$(cat /tmp/rams_response.json)
+          IS_INITIAL=$(echo "$RESPONSE" | jq -r '.isInitialAudit // false')
+          BASELINE_SCORE=$(echo "$RESPONSE" | jq -r '.baseline.score // empty')
+          DELTA=$(echo "$RESPONSE" | jq -r '.delta // empty')
+          NEW_ISSUES=$(echo "$RESPONSE" | jq -r '.newIssues | length // 0')
+          FIXED_ISSUES=$(echo "$RESPONSE" | jq -r '.fixedIssues | length // 0')
+        fi
+        
+        if [ "$IS_INITIAL" = "true" ]; then
+          # Initial audit header
+          echo "## 🎉 Rams Initial Audit" > "$COMMENT_FILE"
+          echo "" >> "$COMMENT_FILE"
+          echo "This is your **baseline**. Future PRs will be compared against this score." >> "$COMMENT_FILE"
+          echo "" >> "$COMMENT_FILE"
+        else
+          echo "## Rams Design Review" > "$COMMENT_FILE"
+          echo "" >> "$COMMENT_FILE"
+        fi
+        
+        # Score table with optional delta
         echo "| Metric | Value |" >> "$COMMENT_FILE"
         echo "|--------|-------|" >> "$COMMENT_FILE"
-        echo "| **Score** | ${SCORE}/100 |" >> "$COMMENT_FILE"
+        
+        if [ -n "$DELTA" ] && [ "$DELTA" != "null" ]; then
+          if [ "$DELTA" -ge 0 ]; then
+            echo "| **Score** | ${SCORE}/100 (+${DELTA} ✅) |" >> "$COMMENT_FILE"
+          else
+            echo "| **Score** | ${SCORE}/100 (${DELTA} ⚠️) |" >> "$COMMENT_FILE"
+          fi
+          echo "| **Baseline** | ${BASELINE_SCORE}/100 |" >> "$COMMENT_FILE"
+          echo "| **New Issues** | ${NEW_ISSUES} |" >> "$COMMENT_FILE"
+          echo "| **Fixed** | ${FIXED_ISSUES} ✅ |" >> "$COMMENT_FILE"
+        else
+          echo "| **Score** | ${SCORE}/100 |" >> "$COMMENT_FILE"
+        fi
+        
         echo "| 🔴 Critical | ${CRITICAL} |" >> "$COMMENT_FILE"
         echo "| 🟠 Serious | ${SERIOUS} |" >> "$COMMENT_FILE"
         echo "| 🟡 Moderate | ${MODERATE} |" >> "$COMMENT_FILE"
         echo "" >> "$COMMENT_FILE"
         
         # Add issues and positives from response
-        if [ -f /tmp/rams_response.json ]; then
-          RESPONSE=$(cat /tmp/rams_response.json)
+        if [ -n "$RESPONSE" ]; then
           
           # Category breakdown
           echo "<details>" >> "$COMMENT_FILE"
@@ -266,17 +364,17 @@ runs:
           echo "</details>" >> "$COMMENT_FILE"
           echo "" >> "$COMMENT_FILE"
           
-          # Critical issues - simple format to avoid markdown breaking
+          # Critical issues with fix suggestions
           echo "### 🔴 Critical Issues" >> "$COMMENT_FILE"
           echo "" >> "$COMMENT_FILE"
-          echo "$RESPONSE" | jq -r '.issues[]? | select(.severity == "critical") | "| `\(.rule // "?")` | \(.message) | `\(.file // "?"):\(.line // "?")` |"' > /tmp/critical_issues.txt
-          if [ -s /tmp/critical_issues.txt ]; then
-            echo "| Rule | Issue | Location |" >> "$COMMENT_FILE"
-            echo "|------|-------|----------|" >> "$COMMENT_FILE"
-            cat /tmp/critical_issues.txt >> "$COMMENT_FILE"
+          CRITICAL_ISSUES=$(echo "$RESPONSE" | jq -r '.issues[]? | select(.severity == "critical")')
+          if [ -n "$CRITICAL_ISSUES" ]; then
+            echo "$RESPONSE" | jq -r '.issues[]? | select(.severity == "critical") | 
+              "#### `\(.rule // "?")` \(.message)\n> 📁 `\(.file // "?"):\(.line // "?")`\n" + 
+              (if .current then "\n<details><summary>View fix</summary>\n\n**Current:**\n```\n\(.current)\n```\n\n**Fix:**\n```\n\(.fix // "See rule documentation")\n```\n</details>\n" else "" end)' >> "$COMMENT_FILE"
             echo "" >> "$COMMENT_FILE"
           else
-            echo "No critical issues found." >> "$COMMENT_FILE"
+            echo "✅ No critical issues found!" >> "$COMMENT_FILE"
             echo "" >> "$COMMENT_FILE"
           fi
           
