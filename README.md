@@ -9,7 +9,7 @@ tools repair.
 ```yaml
 - uses: actions/checkout@v4
   with: { fetch-depth: 0 }
-- uses: hsla0001/rams-action@v1
+- uses: rams-design/rams-action@v1
   with:
     api-key: ${{ secrets.RAMS_API_KEY }}   # free at rams.ai/app/settings
     fail-on: critical                       # or score<80, or never
@@ -27,7 +27,7 @@ jobs:
       - uses: actions/checkout@v4
         with: { fetch-depth: 0 }
       - id: rams
-        uses: hsla0001/rams-action@v1
+        uses: rams-design/rams-action@v1
         with:
           api-key: ${{ secrets.RAMS_API_KEY }}
           mode: since-last-run              # reviews only what changed since the last run
