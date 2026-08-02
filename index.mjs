@@ -62,6 +62,9 @@ const res = await fetch(MCP, {
     authorization: `Bearer ${API_KEY}`,
     'content-type': 'application/json',
     accept: 'application/json, text/event-stream',
+    // RAMS-134: lets the worker record these reviews as trigger
+    // 'github_action' instead of 'mcp' — CI usage becomes countable.
+    'x-rams-source': 'github_action',
   },
   body: JSON.stringify({
     jsonrpc: '2.0', id: 1, method: 'tools/call',
