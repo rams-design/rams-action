@@ -1,4 +1,4 @@
-# Rams Design Review — the judge in your agent loop
+# Rams Design Review: the judge in your agent loop
 
 Score UI changes 0–100, emit structured findings and **git-applyable
 patches**, and gate merges on critical design defects. Rams judges; your
@@ -32,9 +32,9 @@ jobs:
           api-key: ${{ secrets.RAMS_API_KEY }}
           mode: since-last-run              # reviews only what changed since the last run
           fail-on: never
-      # hand the findings to YOUR agent step — Claude Code, Codex, anything:
-      #   rams-review/issues.json  — structured findings
-      #   rams-review/patches/     — git-applyable fixes
+      # hand the findings to YOUR agent step (Claude Code, Codex, anything):
+      #   rams-review/issues.json: structured findings
+      #   rams-review/patches/: git-applyable fixes
       # then commit .rams/last-reviewed-ref to advance the window
 ```
 
@@ -45,7 +45,7 @@ jobs:
 | `score` | 0–100 (any confirmed critical caps at 59) |
 | `critical-count` | confirmed criticals |
 | `issues-json` | path to structured findings |
-| `patches-dir` | one `.patch` per unambiguous fix — `git apply` ready |
+| `patches-dir` | one `.patch` per unambiguous fix, ready for `git apply` |
 
 Quota: each run consumes one review (shared with the GitHub App and MCP).
-Engine: the same 291-rule judge as every Rams surface — [rams.ai](https://www.rams.ai).
+Engine: the same rules as every Rams surface (live list at [rams.ai/rules](https://www.rams.ai/rules)). Setup and plans: [rams.ai/action](https://www.rams.ai/action).
