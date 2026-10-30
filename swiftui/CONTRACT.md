@@ -15,7 +15,7 @@ Headers:
 - `x-rams-source: github_action`
 - `content-type: application/json`
 
-Body (≤ 6 MB; the PNG itself ≤ 4 MB before base64):
+Body (≤ 6 MB; the PNG itself ≤ 3.7 MB raw, so its base64 stays under Anthropic's 5 MB image limit):
 
 ```json
 {
@@ -31,6 +31,7 @@ Body (≤ 6 MB; the PNG itself ≤ 4 MB before base64):
 }
 ```
 
+- `file`, `view` and `device.name` carry no control characters (0x00-0x1f, 0x7f).
 - `pr` is `null` outside pull_request runs. `sha` is the PR head (7 to 40 hex).
 - `view` is the `#Preview("name")` label, `Preview N` for unnamed macros, the
   `PreviewProvider` type, or the `View` type for a bare `X()` render.
@@ -45,7 +46,7 @@ Always JSON with an `outcome`:
 | 404 | (none) | lane off: `VISION_SWIFTUI` unset. The action logs `off`. |
 | 401 | `unauthorized` | no or bad key (checked before the body is read) |
 | 400 | `invalid` | shape, size, or not a PNG (`error` says which) |
-| 403 | `workspace-not-allowed` | the key's workspace is not in `VISION_SWIFTUI_WORKSPACES` (required; unset refuses all) |
+| 403 | `workspace-not-allowed` | the key's workspace is not in `VISION_SWIFTUI_WORKSPACES` (required; unset refuses all; checked with the key, before the body is read) |
 | 403 | `repo-not-allowed` | repo outside `VISION_SWIFTUI_REPOS` (default `hsla0001/`) |
 | 200 | `judged` | shadow: judged and stored in `vision_shadow`, nothing returned |
 | 200 | `busy` | another SwiftUI judge in flight; dropped, not queued |

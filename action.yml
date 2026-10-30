@@ -39,6 +39,10 @@ inputs:
   swiftui-runtime:
     description: 'Pin a simulator runtime, e.g. iOS-26-5'
     required: false
+  swiftui-build-timeout:
+    description: 'Minutes before the simulator build is stopped (the job still passes, with a warning)'
+    required: false
+    default: '15'
   swiftui-dark:
     description: '"false" renders light only (halves the shots)'
     required: false

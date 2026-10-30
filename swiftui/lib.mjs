@@ -266,26 +266,60 @@ ${rows}
 }
 
 /**
+ * Line spans of each entry's row inside buildHarness() text (1-based), so an
+ * error on a row in the @main file (a preview whose file compiles into a
+ * different target: "cannot find '__rams_x_0' in scope") maps to its entry.
+ */
+export function harnessRowSpans(harnessText, entries) {
+  const lines = harnessText.split('\n');
+  return entries.map((e) => {
+    const k = lines.findIndex((l) => l.includes(`(${JSON.stringify(e.fn)},`));
+    return { fn: e.fn, startLine: k + 1, endLine: k + 1 };
+  }).filter((e) => e.startLine > 0);
+}
+
+/**
  * Compile errors from xcodebuild output that land inside our appended
- * blocks, mapped to the entries that caused them. `appends` maps a source
- * path RELATIVE to the repo root to { offset, entries } where offset is the
- * original file's newline count. xcodebuild prints absolute paths that may
- * not match the checkout's realpath (/tmp vs /private/tmp), so match by suffix.
+ * blocks, mapped to the entries that caused them. `appends` maps a path
+ * RELATIVE to the repo root to a list of { offset, entries } blocks (a file's
+ * own wrappers, and in the @main file the harness rows too); offset is the
+ * newline count of everything before the block. xcodebuild prints absolute
+ * paths that may not match the checkout's realpath (/tmp vs /private/tmp),
+ * so paths match by suffix. An error that names a generated function
+ * (__rams_<id>_<n>) maps to it wherever it lands.
  */
 export function entriesWithErrors(log, appends) {
   const bad = new Set();
-  const re = /^(\/[^:\n]+\.swift):(\d+):\d+: error:/gm;
+  const known = new Set(Object.values(appends).flat().flatMap((a) => a.entries.map((e) => e.fn)));
+  const re = /^(\/[^:\n]+\.swift):(\d+):\d+: error:([^\n]*)/gm;
   let m;
   while ((m = re.exec(log))) {
+    for (const n of m[3].match(/__rams_[0-9a-z]+_\d+/g) ?? []) if (known.has(n)) bad.add(n);
     const rel = Object.keys(appends).find((k) => m[1] === k || m[1].endsWith('/' + k));
-    const a = rel && appends[rel];
-    if (!a) continue;
-    const line = parseInt(m[2], 10) - a.offset;
-    const hit = a.entries.find((e) => line >= e.startLine && line <= e.endLine);
-    if (hit) bad.add(hit.fn);
+    if (!rel) continue;
+    const line = parseInt(m[2], 10);
+    for (const a of [].concat(appends[rel])) {
+      const hit = a.entries.find((e) => line - a.offset >= e.startLine && line - a.offset <= e.endLine);
+      if (hit) bad.add(hit.fn);
+    }
   }
   return bad;
 }
+
+const CONTROL = /[\x00-\x1f\x7f]/;
+
+/** Child processes (xcodebuild, simctl, the app) never see action inputs or Rams keys. */
+export function childEnv(env) {
+  const out = {};
+  for (const [k, v] of Object.entries(env)) {
+    if (/^INPUT_/i.test(k) || /^RAMS_/i.test(k) || /RAMS.*(KEY|TOKEN)/i.test(k)) continue;
+    out[k] = v;
+  }
+  return out;
+}
+
+/** NUL-separated git output (-z) to paths; quotePath off keeps UTF-8 names raw. */
+export const splitNul = (out) => out.split('\0').filter(Boolean);
 
 /** Only pull_request runs carry a PR; anything else uploads pr: null. */
 export function prFromEvent(event) {
@@ -293,7 +327,8 @@ export function prFromEvent(event) {
   return pr ? { number: pr.number, sha: pr.head?.sha ?? null } : { number: null, sha: null };
 }
 
-export const RENDER_LIMITS = { maxRenders: 12, pngBytes: 4 * 1024 * 1024 };
+// Anthropic takes images up to 5 MB base64: 3.7 MB raw stays under it.
+export const RENDER_LIMITS = { maxRenders: 12, pngBytes: Math.floor(3.7 * 1024 * 1024) };
 
 /** One upload: the worker contract (see swiftui/CONTRACT.md). */
 export function buildRenderPayload({ repo, pr, sha, device, shot, png }) {
@@ -302,6 +337,9 @@ export function buildRenderPayload({ repo, pr, sha, device, shot, png }) {
   if (!Buffer.isBuffer(png) || png.length === 0) throw new Error('png missing');
   if (png.length > RENDER_LIMITS.pngBytes) throw new Error(`png over ${RENDER_LIMITS.pngBytes} bytes`);
   if (png.readUInt32BE(0) !== 0x89504e47) throw new Error('not a png');
+  for (const [k, v] of [['file', shot.file], ['view', shot.view], ['device', device]]) {
+    if (typeof v !== 'string' || !v || CONTROL.test(v)) throw new Error(`bad ${k}: empty or control characters`);
+  }
   return {
     v: 1,
     repo,

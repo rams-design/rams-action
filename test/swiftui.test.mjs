@@ -110,7 +110,7 @@ test('buildFileAppend: entry spans point at their own lines; errors map back thr
     `/tmp/work/repo/app/Other.swift:3:1: error: unrelated`,
     `/tmp/work/repo/app/A.swift:2:1: error: in the original code, not ours`,
   ].join('\n');
-  const bad = entriesWithErrors(log, { 'app/A.swift': { offset, entries } });
+  const bad = entriesWithErrors(log, { 'app/A.swift': [{ offset, entries }] });
   assert.deepEqual([...bad], [entries[1].fn]);
 });
 

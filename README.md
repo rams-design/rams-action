@@ -42,7 +42,9 @@ jobs:
 
 A second job on a macOS runner renders the SwiftUI previews of the files a PR
 changes and sends the PNGs to Rams. It builds your app for the iOS Simulator
-on your runner; nothing in your project changes and nothing is committed.
+on your runner. During the run a few changed files get generated preview
+code appended; every one is restored before the job ends (also on cancel or
+crash) and nothing is committed. A failure here is a warning, never a red job.
 
 ```yaml
   swiftui-renders:
