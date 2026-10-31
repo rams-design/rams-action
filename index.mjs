@@ -22,6 +22,15 @@ const fail = (msg) => { console.error(`::error::${msg}`); process.exit(1); };
 
 if (!API_KEY) fail('api-key is required (free at https://www.rams.ai/app/settings)');
 
+// RAMS-461: opt-in SwiftUI renders on a macOS job. This path renders and
+// uploads only; the code review stays in your ubuntu job.
+if (inp('render-swiftui', 'false') === 'true') {
+  // fail soft: any failure is a warning + summary and exit 0; only a
+  // non-macOS runner (a setup error) exits 1
+  const { swiftuiMain, stepSummary } = await import('./swiftui/run.mjs');
+  process.exit(await swiftuiMain({ summary: stepSummary, inp, apiKey: API_KEY, workerBase: process.env.RAMS_WORKER_URL || 'https://worker.rams.ai' }));
+}
+
 // 1. What changed?
 const UI_EXT = /\.(tsx|jsx|vue|svelte|astro|html|htm|css|scss|sass|less|swift)$/i;
 let range;

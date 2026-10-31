@@ -23,6 +23,31 @@ inputs:
     required: false
     default: '20'
 
+  render-swiftui:
+    description: 'macOS jobs only: render the SwiftUI previews of changed files to PNGs (light and dark) and send them to the Rams render lane. This mode renders only; keep the review in your ubuntu job.'
+    required: false
+    default: 'false'
+  swiftui-project:
+    description: 'The .xcodeproj or .xcworkspace to build (default: the one at the repo root)'
+    required: false
+  swiftui-scheme:
+    description: 'The scheme to build (default: the one named like the project, else the first)'
+    required: false
+  swiftui-device:
+    description: 'Simulator name or udid (default: an iPhone Pro on the newest runtime the SDK supports)'
+    required: false
+  swiftui-runtime:
+    description: 'Pin a simulator runtime, e.g. iOS-26-5'
+    required: false
+  swiftui-build-timeout:
+    description: 'Minutes before the simulator build is stopped (the job still passes, with a warning)'
+    required: false
+    default: '15'
+  swiftui-dark:
+    description: '"false" renders light only (halves the shots)'
+    required: false
+    default: 'true'
+
 outputs:
   score:
     description: 'The 0-100 design score'
