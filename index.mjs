@@ -8,9 +8,8 @@ import { readFileSync, writeFileSync, mkdirSync, existsSync, appendFileSync } fr
 import { join } from 'node:path';
 import { readInput } from './input.mjs';
 
-// GitHub keeps hyphens in input env names (`api-key` -> INPUT_API-KEY); the
-// underscore form is read too, for anyone who set it by hand. Before 10/31
-// only the underscore form was read, so every hyphenated input came in empty.
+// Reads both env forms of an input name (INPUT_API-KEY and INPUT_API_KEY), so
+// it works however the runner spells it.
 const inp = (name, dflt) => readInput(process.env, name, dflt);
 const API_KEY = inp('api-key');
 const MODE = inp('mode', 'pr');
