@@ -6,8 +6,11 @@
 import { execSync } from 'node:child_process';
 import { readFileSync, writeFileSync, mkdirSync, existsSync, appendFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { readInput } from './input.mjs';
 
-const inp = (name, dflt) => process.env[`INPUT_${name.toUpperCase().replace(/-/g, '_')}`] ?? dflt;
+// Reads both env forms of an input name (INPUT_API-KEY and INPUT_API_KEY), so
+// it works however the runner spells it.
+const inp = (name, dflt) => readInput(process.env, name, dflt);
 const API_KEY = inp('api-key');
 const MODE = inp('mode', 'pr');
 const FAIL_ON = inp('fail-on', 'critical');
