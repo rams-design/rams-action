@@ -6,8 +6,12 @@
 import { execSync } from 'node:child_process';
 import { readFileSync, writeFileSync, mkdirSync, existsSync, appendFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { readInput } from './input.mjs';
 
-const inp = (name, dflt) => process.env[`INPUT_${name.toUpperCase().replace(/-/g, '_')}`] ?? dflt;
+// GitHub keeps hyphens in input env names (`api-key` -> INPUT_API-KEY); the
+// underscore form is read too, for anyone who set it by hand. Before 10/31
+// only the underscore form was read, so every hyphenated input came in empty.
+const inp = (name, dflt) => readInput(process.env, name, dflt);
 const API_KEY = inp('api-key');
 const MODE = inp('mode', 'pr');
 const FAIL_ON = inp('fail-on', 'critical');
